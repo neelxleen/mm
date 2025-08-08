@@ -78,10 +78,18 @@ if st.button("✨ Generate Lofi Video"):
             log_placeholder.text(f"Media fetched: {media_path}")
             progress_bar.progress(60)
 
+            # Step 2.5: If media is a GIF, convert and loop it to MP4 matching audio duration
+            if media_path.lower().endswith('.gif'):
+                looped_mp4_path = media_path.rsplit('.', 1)[0] + '_looped.mp4'
+                log_placeholder.text("Converting GIF to looped MP4 for stable video creation...")
+                media_path = video.extend_gif_to_mp4(media_path, looped_mp4_path, duration=lofi_audio.duration_seconds, log_func=log_placeholder.text)
+                log_placeholder.text("GIF converted to MP4 successfully.")
+                progress_bar.progress(75)
+
             # Step 3: Create the final video
             log_placeholder.text("Generating the final video...")
             output_video_path = "lofi_video.mp4"
-            final_video = video.create_video_background(media_path, lofi_audio_path, output_video_path)
+            final_video = video.create_video_background(media_path, lofi_audio_path, output_video_path, log_func=log_placeholder.text)
             if not final_video:
                 log_placeholder.text("Video creation failed.")
                 progress_bar.empty()
