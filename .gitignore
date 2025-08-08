@@ -1,0 +1,5 @@
+*.pyc
+temp*
+.env
+*.m*
+*.gif
