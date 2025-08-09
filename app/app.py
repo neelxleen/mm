@@ -10,7 +10,10 @@ import video
 st.set_page_config(page_title="Lofi Sad Anime Video Generator", page_icon="🎧", layout="centered")
 
 st.title("🎧 Lofi Sad Anime Video Generator")
-st.write("Generate a 1920x1080 lofi video from YouTube or uploaded audio, with a Tenor sad anime background and adjustable lofi audio effects.")
+st.write(
+    "Generate a 1920x1080 lofi video from YouTube or uploaded audio, "
+    "with a Tenor sad anime background and adjustable lofi audio effects."
+)
 
 TEMP_AUDIO_PATH = "temp_audio_input.mp3"
 LOFI_AUDIO_PATH = "lofi_audio.mp3"
@@ -37,7 +40,7 @@ if method == "YouTube URL":
         if st.button("Download Audio"):
             try:
                 st.info("Downloading audio from YouTube...")
-                yt = YouTube(yt_url)
+                yt = YouTube(yt_url, use_po_token=True)
                 stream = yt.streams.get_audio_only()
                 stream.download(filename=TEMP_AUDIO_PATH)
                 input_song = AudioSegment.from_file(TEMP_AUDIO_PATH)
@@ -61,8 +64,10 @@ cols = st.columns(2)
 with cols[0]:
     if st.button("🎲 Regenerate Background Media"):
         if st.session_state.media_path and os.path.exists(st.session_state.media_path):
-            try: os.remove(st.session_state.media_path)
-            except: pass
+            try:
+                os.remove(st.session_state.media_path)
+            except:
+                pass
         st.info("Fetching new background media...")
         mp = media.fetch_random_tenor_media(tag=gif_tag, contentfilter=content_filter)
         if mp:
@@ -74,8 +79,10 @@ with cols[0]:
 with cols[1]:
     if st.button("🧹 Clear Media"):
         if st.session_state.media_path and os.path.exists(st.session_state.media_path):
-            try: os.remove(st.session_state.media_path)
-            except: pass
+            try:
+                os.remove(st.session_state.media_path)
+            except:
+                pass
         st.session_state.media_path = None
         st.info("Background media cleared.")
 
@@ -116,10 +123,12 @@ if input_song:
         with st.spinner("Processing lofi audio..."):
             try:
                 lofi_preview = apply_lofi_with_params(input_song)
-                lofi_preview.export(LOFI_AUDIO_PATH, format="mp3")
-                st.audio(LOFI_AUDIO_PATH)
-                st.download_button("Download Lofi Audio", data=open(LOFI_AUDIO_PATH, "rb").read(),
-                                   file_name="lofi_audio.mp3", mime="audio/mpeg")
+                with open(LOFI_AUDIO_PATH, "wb") as out_f:
+                    lofi_preview.export(out_f, format="mp3")
+                with open(LOFI_AUDIO_PATH, "rb") as audio_file:
+                    audio_bytes = audio_file.read()
+                    st.audio(audio_bytes)
+                    st.download_button("Download Lofi Audio", data=audio_bytes, file_name="lofi_audio.mp3", mime="audio/mpeg")
             except Exception as e:
                 st.error(f"Error processing lofi audio: {e}")
 
@@ -150,7 +159,8 @@ if generate:
             raise audio_err
 
         log.text("💾 Exporting processed audio to mp3...")
-        lofi_audio.export(LOFI_AUDIO_PATH, format="mp3")
+        with open(LOFI_AUDIO_PATH, "wb") as out_f:
+            lofi_audio.export(out_f, format="mp3")
         progress.progress(35)
         log.text("✅ Audio exported.")
 
@@ -174,13 +184,9 @@ if generate:
         st.success("Your lofi video is ready!")
 
         with open(OUTPUT_VIDEO_PATH, "rb") as vf:
-            st.video(vf.read())
-        st.download_button(
-            "Download MP4",
-            open(OUTPUT_VIDEO_PATH, "rb").read(),
-            file_name="lofi_sad_anime_1080p.mp4",
-            mime="video/mp4"
-        )
+            video_bytes = vf.read()
+            st.video(video_bytes)
+            st.download_button("Download MP4", data=video_bytes, file_name="lofi_sad_anime_1080p.mp4", mime="video/mp4")
 
         log.text("🧹 Cleaning up temp files...")
         try:
