@@ -1,6 +1,6 @@
 streamlit
-requests
-pytubefix
-moviepy>=2.0.0
-numpy
 pydub
+pytubefix
+moviepy
+requests
+python-dotenv
