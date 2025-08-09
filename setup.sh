@@ -1,10 +1,9 @@
 #!/bin/bash
-# Update package list
-sudo apt-get update
+set -e
 
-# Install ffmpeg
+sudo apt-get update
 sudo apt-get install -y ffmpeg
 
-# Install Python dependencies
 pip install --upgrade pip
 pip install streamlit pydub pytubefix moviepy requests python-dotenv
+echo "Setup complete."

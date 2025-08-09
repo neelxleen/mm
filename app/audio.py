@@ -1,60 +1,72 @@
 from pydub import AudioSegment
-from pydub.effects import normalize
-import random
-import io
+from pydub.effects import normalize, low_pass_filter
 
-def generate_vinyl_noise(duration_ms: int, volume_dB: float = -35.0) -> AudioSegment:
+def add_delay(audio: AudioSegment, delay_ms: int, decay: float = 0.5) -> AudioSegment:
     """
-    Generate subtle vinyl crackle/noise for the given duration.
-    Here we generate white noise and lowpass filter it to sound like vinyl crackle.
+    Adds a delay/echo effect by overlaying a delayed and attenuated copy of audio.
     """
-    # Create white noise
-    noise = AudioSegment.white_noise(duration=duration_ms).apply_gain(volume_dB)
+    if delay_ms <= 0:
+        return audio
 
-    # Low pass filter to mimic vinyl crackle characteristics
-    noise = noise.low_pass_filter(8000)
+    silent_segment = AudioSegment.silent(duration=delay_ms)
+    delayed_audio = audio - (1 - decay) * 20  # attenuate volume according to decay (in dB)
+    delayed_audio = silent_segment + delayed_audio  # shift delayed audio right by delay_ms
+    combined_audio = audio.overlay(delayed_audio)
+    return combined_audio
 
-    # Optionally, modulate volume randomly for more natural effect
-    segments = []
-    segment_len = 100  # ms
-    for i in range(0, duration_ms, segment_len):
-        seg = noise[i:i+segment_len]
-        # Random volume modulation +-3 dB
-        seg = seg + random.uniform(-3, 3)
-        segments.append(seg)
-    return sum(segments)
 
-def apply_lofi_effects(song: AudioSegment) -> AudioSegment:
-    """
-    Apply lofi effects by downsampling, low-pass filtering, 
-    plus adding subtle saturation, vinyl noise, slight echo and normalization.
-    """
-    # Normalize input audio to -1 dBFS max peak
+def _simple_reverb(sound: AudioSegment, delay_ms=220, decay=0.75, repeats=1):
+    out = sound
+    for i in range(1, repeats + 1):
+        delayed = add_delay(sound, delay_ms * i, decay ** i)
+        out = out.overlay(delayed)
+    return out
+
+
+def _speed_change(sound: AudioSegment, speed: float) -> AudioSegment:
+    new_frame_rate = int(sound.frame_rate * speed)
+    changed = sound._spawn(sound.raw_data, overrides={"frame_rate": new_frame_rate})
+    return changed.set_frame_rate(sound.frame_rate)
+
+
+def _bass_boost(sound: AudioSegment, gain_db=3, cutoff=150):
+    lows = low_pass_filter(sound, cutoff)
+    lows = lows + gain_db
+    return sound.overlay(lows)
+
+
+def apply_saturation(sound: AudioSegment, gain_db=2):
+    saturated = sound + gain_db
+    return saturated.apply_gain_stereo(-gain_db, -gain_db)
+
+
+def apply_lofi_effects_pydub(song: AudioSegment) -> AudioSegment:
+    # Normalize audio first
     processed = normalize(song)
 
-    # Downsample to 22050 Hz for vintage warmth
-    processed = processed.set_frame_rate(22050)
+    # Slow down to ~0.9x speed for lofi vibe
+    processed = _speed_change(processed, speed=0.9)
 
-    # Apply low-pass filter ~3000 Hz to muffle highs for lofi feel
-    processed = processed.low_pass_filter(3000)
+    # Moderate low pass filter to soften highs (warmth)
+    processed = low_pass_filter(processed, 3000)
 
-    # Add subtle saturation by soft clipping (simple distortion simulation)
-    # Increase gain slightly then reduce volume for saturation effect
-    processed = processed + 5
-    processed = processed.apply_gain_stereo(-5, -5)
+    # Apply modest bass boost to reduce booming
+    processed = _bass_boost(processed, gain_db=3, cutoff=150)
 
-    # Overlay vinyl crackle/noise to add vintage texture
-    noise = generate_vinyl_noise(len(processed), volume_dB=-40)
-    processed = processed.overlay(noise)
+    # Apply subtle reverb with reduced repeats & higher decay for smoothness
+    processed = _simple_reverb(processed, delay_ms=220, decay=0.75, repeats=1)
 
-    # Optional: add gentle echo effect by overlaying delayed, quieter audio
-    delay_ms = 150
-    echo_vol_reduction_db = 15
-    delayed = processed - echo_vol_reduction_db
-    delayed = delayed.delay(delay_ms)
-    processed = processed.overlay(delayed)
+    # Add gentle saturation for analog warmth
+    processed = apply_saturation(processed, gain_db=2)
 
-    # Normalize again after effects
+    # Slight volume increase and normalize once more for balance
+    processed = processed + 1
     processed = normalize(processed)
+
+    # Final smoothing low pass to remove harshness (~7.5 kHz cutoff)
+    processed = low_pass_filter(processed, 7500)
+
+    # Downsample to 22050 Hz for vintage texture and smaller file
+    processed = processed.set_frame_rate(22050)
 
     return processed

@@ -3,126 +3,202 @@ import streamlit as st
 from pydub import AudioSegment
 from pytubefix import YouTube
 
-import audio
+import audio as audio_mod
 import media
 import video
 
-st.title("🎵 Lofi Music Video Generator 🎥 (Tenor)")
-st.write("Paste a YouTube URL or upload an audio file, then generate a lofi video with a random Tenor background (SFW).")
+st.set_page_config(page_title="Lofi Sad Anime Video Generator", page_icon="🎧", layout="centered")
 
-# Select audio input method
-method = st.radio("Choose your input method:", ['YouTube URL', 'Upload Audio File'], key="input_method_radio")
-TEMP_AUDIO_PATH = "temp_audio.mp3"
-input_song = None
+st.title("🎧 Lofi Sad Anime Video Generator")
+st.write("Generate a 1920x1080 lofi video from YouTube or uploaded audio, with a Tenor sad anime background and adjustable lofi audio effects.")
 
-# Handle input from YouTube URL
-if method == "YouTube URL":
-    youtube_url = st.text_input("Enter YouTube URL:")
-    if youtube_url:
-        try:
-            st.write("Downloading audio from YouTube...")
-            yt = YouTube(youtube_url)
-            audio_stream = yt.streams.get_audio_only()
-            audio_stream.download(filename=TEMP_AUDIO_PATH)
-            input_song = AudioSegment.from_file(TEMP_AUDIO_PATH)
-            st.success("Audio downloaded successfully!")
-            st.audio(TEMP_AUDIO_PATH)
-        except Exception as e:
-            st.error(f"Failed to download audio from YouTube: {e}")
+TEMP_AUDIO_PATH = "temp_audio_input.mp3"
+LOFI_AUDIO_PATH = "lofi_audio.mp3"
+OUTPUT_VIDEO_PATH = "lofi_video_1080p.mp4"
 
-# Handle input from uploaded audio file
-elif method == "Upload Audio File":
-    uploaded_file = st.file_uploader("Upload audio file", type=["mp3", "wav", "ogg"])
-    if uploaded_file is not None:
-        try:
-            with open(TEMP_AUDIO_PATH, "wb") as f:
-                f.write(uploaded_file.getbuffer())
-            input_song = AudioSegment.from_file(TEMP_AUDIO_PATH)
-            st.success("File uploaded successfully!")
-            st.audio(TEMP_AUDIO_PATH)
-        except Exception as e:
-            st.error(f"Failed to process uploaded file: {e}")
-
-# User inputs for Tenor GIF tag and content filter
-gif_tag = st.text_input("Enter a tag for the background GIF", value="lofi city")
+method = st.radio("Choose audio input method:", ["YouTube URL", "Upload Audio File"], horizontal=True)
+gif_tag = st.text_input("Background vibe (Tenor search):", value="anime sad lofi")
 content_filter = st.selectbox("Content filter", ["off", "low", "medium", "high"], index=3)
 
-# Generate button and processing logic with real-time verbose logs and progress bar
-if st.button("✨ Generate Lofi Video"):
-    if not input_song:
-        st.warning("Please provide a song via YouTube URL or file upload before generating.")
+if "media_path" not in st.session_state:
+    st.session_state.media_path = None
+
+# Sidebar controls for lofi audio parameters
+st.sidebar.header("Lofi Audio Controls")
+slowdown_speed = st.sidebar.slider("Slowdown Speed (0.7x to 1.0x)", 0.7, 1.0, 0.9, 0.01)
+delay_ms = st.sidebar.slider("Reverb Delay (ms)", 100, 400, 220, 10)
+reverb_repeats = st.sidebar.slider("Reverb Repeats", 0, 3, 1, 1)
+reverb_decay = st.sidebar.slider("Reverb Decay", 0.3, 0.9, 0.75, 0.05)
+
+input_song = None
+if method == "YouTube URL":
+    yt_url = st.text_input("Enter YouTube URL:")
+    if yt_url:
+        if st.button("Download Audio"):
+            try:
+                st.info("Downloading audio from YouTube...")
+                yt = YouTube(yt_url)
+                stream = yt.streams.get_audio_only()
+                stream.download(filename=TEMP_AUDIO_PATH)
+                input_song = AudioSegment.from_file(TEMP_AUDIO_PATH)
+                st.success("Audio downloaded!")
+                st.audio(TEMP_AUDIO_PATH)
+            except Exception as e:
+                st.error(f"Download failed: {e}")
+        elif os.path.exists(TEMP_AUDIO_PATH):
+            input_song = AudioSegment.from_file(TEMP_AUDIO_PATH)
+            st.audio(TEMP_AUDIO_PATH)
+else:
+    upload = st.file_uploader("Upload audio", type=["mp3", "wav", "ogg"])
+    if upload:
+        with open(TEMP_AUDIO_PATH, "wb") as f:
+            f.write(upload.getbuffer())
+        input_song = AudioSegment.from_file(TEMP_AUDIO_PATH)
+        st.success("Audio uploaded!")
+        st.audio(TEMP_AUDIO_PATH)
+
+cols = st.columns(2)
+with cols[0]:
+    if st.button("🎲 Regenerate Background Media"):
+        if st.session_state.media_path and os.path.exists(st.session_state.media_path):
+            try: os.remove(st.session_state.media_path)
+            except: pass
+        st.info("Fetching new background media...")
+        mp = media.fetch_random_tenor_media(tag=gif_tag, contentfilter=content_filter)
+        if mp:
+            st.session_state.media_path = mp
+            st.success("Media fetched!")
+        else:
+            st.warning("No media found. Try a different tag.")
+
+with cols[1]:
+    if st.button("🧹 Clear Media"):
+        if st.session_state.media_path and os.path.exists(st.session_state.media_path):
+            try: os.remove(st.session_state.media_path)
+            except: pass
+        st.session_state.media_path = None
+        st.info("Background media cleared.")
+
+st.markdown("### Background Media Preview")
+if st.session_state.media_path and os.path.exists(st.session_state.media_path):
+    ext = os.path.splitext(st.session_state.media_path)[1].lower()
+    if ext in ['.gif', '.png', '.jpg', '.jpeg']:
+        st.image(st.session_state.media_path, use_container_width=True)
+    elif ext in ['.mp4', '.mov', '.webm']:
+        st.video(st.session_state.media_path)
     else:
-        # Create placeholders for logs and progress bar
-        log_placeholder = st.empty()
-        progress_bar = st.progress(0)
+        st.info("Preview not supported for this file type.")
+else:
+    st.info("Click 'Regenerate Background Media' to fetch and preview a background.")
+
+def apply_lofi_with_params(song):
+    # Apply lofi effects with user controlled parameters
+    processed = audio_mod.normalize(song)
+    processed = audio_mod._speed_change(processed, speed=slowdown_speed)
+    processed = audio_mod.low_pass_filter(processed, 3000)
+    
+    processed = audio_mod._simple_reverb(processed, delay_ms=delay_ms, decay=reverb_decay, repeats=reverb_repeats)
+    processed = audio_mod.apply_saturation(processed, gain_db=2)  # Optional warmth
+    processed = processed + 1
+    processed = audio_mod.normalize(processed)
+    processed = audio_mod.low_pass_filter(processed, 7500)
+    processed = processed.set_frame_rate(22050)
+    return processed
+
+st.markdown("---")
+
+log = st.empty()
+progress = st.progress(0)
+
+# Button to preview and download lofi processed audio
+if input_song:
+    if st.button("🎧 Preview Lofi Audio"):
+        with st.spinner("Processing lofi audio..."):
+            try:
+                lofi_preview = apply_lofi_with_params(input_song)
+                lofi_preview.export(LOFI_AUDIO_PATH, format="mp3")
+                st.audio(LOFI_AUDIO_PATH)
+                st.download_button("Download Lofi Audio", data=open(LOFI_AUDIO_PATH, "rb").read(),
+                                   file_name="lofi_audio.mp3", mime="audio/mpeg")
+            except Exception as e:
+                st.error(f"Error processing lofi audio: {e}")
+
+generate = st.button("✨ Generate 1920x1080 Lofi Video")
+
+if generate:
+    try:
+        if not (input_song or os.path.exists(TEMP_AUDIO_PATH)):
+            st.warning("Please provide audio first.")
+            raise RuntimeError("Missing audio")
+
+        if not st.session_state.media_path or not os.path.exists(st.session_state.media_path):
+            st.warning("Please fetch background media first.")
+            raise RuntimeError("Missing media")
+
+        if input_song is None and os.path.exists(TEMP_AUDIO_PATH):
+            input_song = AudioSegment.from_file(TEMP_AUDIO_PATH)
+
+        log.text("🌀 Applying lofi audio effects (customized)...")
+        progress.progress(10)
 
         try:
-            log_placeholder.text("Starting lofi audio processing...")
-            progress_bar.progress(5)
+            lofi_audio = apply_lofi_with_params(input_song)
+            log.text("✅ Lofi audio effects applied.")
+        except Exception as audio_err:
+            log.text(f"Error during audio processing: {audio_err}")
+            st.error(f"Error during audio processing: {audio_err}")
+            raise audio_err
 
-            # Step 1: Apply lofi audio effects
-            lofi_audio = audio.apply_lofi_effects(input_song)
-            lofi_audio_path = "lofi_audio.mp3"
-            lofi_audio.export(lofi_audio_path, format="mp3")
-            log_placeholder.text("Lofi audio effects applied.")
-            progress_bar.progress(30)
+        log.text("💾 Exporting processed audio to mp3...")
+        lofi_audio.export(LOFI_AUDIO_PATH, format="mp3")
+        progress.progress(35)
+        log.text("✅ Audio exported.")
 
-            # Step 2: Fetch random GIF or MP4 from Tenor API
-            log_placeholder.text("Fetching media from Tenor...")
-            media_path = media.fetch_random_tenor_media(tag=gif_tag, contentfilter=content_filter)
-            if not media_path:
-                log_placeholder.text("Failed to fetch media from Tenor. Please check your tag or API key.")
-                progress_bar.empty()
-                st.error("Failed to fetch media from Tenor. Please try again with a different tag or check your API key.")
-                raise RuntimeError("Media fetch failed")
-            log_placeholder.text(f"Media fetched: {media_path}")
-            progress_bar.progress(60)
+        log.text("🔄 Generating video...")
+        progress.progress(50)
 
-            # Step 2.5: If media is a GIF, convert and loop it to MP4 matching audio duration
-            if media_path.lower().endswith('.gif'):
-                looped_mp4_path = media_path.rsplit('.', 1)[0] + '_looped.mp4'
-                log_placeholder.text("Converting GIF to looped MP4 for stable video creation...")
-                media_path = video.extend_gif_to_mp4(media_path, looped_mp4_path, duration=lofi_audio.duration_seconds, log_func=log_placeholder.text)
-                log_placeholder.text("GIF converted to MP4 successfully.")
-                progress_bar.progress(75)
+        final_video = video.create_video_background(
+            st.session_state.media_path,
+            LOFI_AUDIO_PATH,
+            OUTPUT_VIDEO_PATH,
+            log=log.text
+        )
+        if not final_video:
+            err_msg = "❌ Video creation failed."
+            log.text(err_msg)
+            st.error(err_msg)
+            raise RuntimeError(err_msg)
 
-            # Step 3: Create the final video
-            log_placeholder.text("Generating the final video...")
-            output_video_path = "lofi_video.mp4"
-            final_video = video.create_video_background(media_path, lofi_audio_path, output_video_path, log_func=log_placeholder.text)
-            if not final_video:
-                log_placeholder.text("Video creation failed.")
-                progress_bar.empty()
-                st.error("Video creation failed.")
-                raise RuntimeError("Video creation failed")
-            log_placeholder.text("Video created successfully!")
-            progress_bar.progress(100)
+        progress.progress(100)
+        log.text("✅ Video generated successfully!")
+        st.success("Your lofi video is ready!")
 
-            # Display video and download button
-            with open(final_video, "rb") as vf:
-                video_bytes = vf.read()
-                st.video(video_bytes)
-                st.download_button("Download Video", video_bytes, file_name=output_video_path, mime="video/mp4")
+        with open(OUTPUT_VIDEO_PATH, "rb") as vf:
+            st.video(vf.read())
+        st.download_button(
+            "Download MP4",
+            open(OUTPUT_VIDEO_PATH, "rb").read(),
+            file_name="lofi_sad_anime_1080p.mp4",
+            mime="video/mp4"
+        )
 
-            # Cleanup temp files
-            try:
-                os.remove(final_video)
-                os.remove(media_path)
-            except Exception as e:
-                st.warning(f"Error cleaning temporary files: {e}")
+        log.text("🧹 Cleaning up temp files...")
+        try:
+            if os.path.exists(OUTPUT_VIDEO_PATH):
+                os.remove(OUTPUT_VIDEO_PATH)
+                log.text("Deleted output video.")
+            if os.path.exists(LOFI_AUDIO_PATH):
+                os.remove(LOFI_AUDIO_PATH)
+                log.text("Deleted processed audio.")
+        except Exception as cleanup_err:
+            log.text(f"⚠️ Cleanup error: {cleanup_err}")
 
-            for temp_file in [TEMP_AUDIO_PATH, lofi_audio_path]:
-                if os.path.exists(temp_file):
-                    try:
-                        os.remove(temp_file)
-                    except Exception as e:
-                        st.warning(f"Error deleting temporary file {temp_file}: {e}")
+        log.text("🎉 Process complete!")
 
-        except Exception as ex:
-            # Exception already handled by messages shown, but can add logging here if needed
-            pass
+    except Exception as e:
+        log.text(f"Unexpected error: {str(e)}")
+        st.error(f"An error occurred: {str(e)}")
 
-        finally:
-            # Clear placeholders after all processing is complete
-            log_placeholder.empty()
-            progress_bar.empty()
+    finally:
+        progress.empty()
+        log.empty()
